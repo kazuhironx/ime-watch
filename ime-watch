@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""ibus-mozc の入力モード切替を拾って、キャレット横にポップアップを出し、
+状態を ~/.cache/ime-state に書く (Claude Code の statusline が読む)。
+
+GNOME のトップバー表示は Mozc 内部の IMEOn/IMEOff に追従せず、
+しかも視線を右上に動かさないと見えないので、入力位置に直接出す。
+"""
+import os
+import re
+import sys
+
+import gi
+
+gi.require_version('Gtk', '3.0')
+gi.require_version('Gdk', '3.0')
+gi.require_version('IBus', '1.0')
+from gi.repository import Gdk, Gio, GLib, Gtk, IBus  # noqa: E402
+
+STATE_FILE = os.path.join(GLib.get_user_cache_dir(), 'ime-state')
+POPUP_MS = 700
+
+CSS = b"""
+#ime-popup { background-color: rgba(30, 30, 30, 0.92); border-radius: 10px; }
+#ime-popup label { color: #ffffff; font-size: 36px; font-weight: bold; padding: 4px 18px; }
+#ime-popup.on label { color: #ffb347; }
+"""
+
+
+class Popup:
+    def __init__(self):
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        # POPUP は override-redirect なのでフォーカスを奪わずタスクバーにも出ない
+        self.win = Gtk.Window(type=Gtk.WindowType.POPUP)
+        self.win.set_name('ime-popup')
+        self.win.set_accept_focus(False)
+        self.label = Gtk.Label()
+        self.win.add(self.label)
+        self.hide_id = 0
+
+    def show(self, text, is_on, cursor):
+        self.label.set_text(text)
+        ctx = self.win.get_style_context()
+        (ctx.add_class if is_on else ctx.remove_class)('on')
+        self.win.resize(1, 1)
+        self.win.move(*self._position(cursor))
+        self.win.show_all()
+        if self.hide_id:
+            GLib.source_remove(self.hide_id)
+        self.hide_id = GLib.timeout_add(POPUP_MS, self._hide)
+
+    def _hide(self):
+        self.win.hide()
+        self.hide_id = 0
+        return False
+
+    def _position(self, cursor):
+        display = Gdk.Display.get_default()
+        if cursor is None:
+            mon = display.get_primary_monitor() or display.get_monitor(0)
+            geo = mon.get_geometry()
+            return geo.x + geo.width // 2 - 40, geo.y + geo.height // 2 - 40
+        x, y, w, h = cursor
+        # ibus のキャレット座標はデバイスピクセル、GTK の move は論理ピクセル
+        mon = display.get_monitor_at_point(x, y)
+        scale = mon.get_scale_factor() if mon else 1
+        return (x + w) // scale + 12, (y + h) // scale + 8
+
+
+class Watcher:
+    def __init__(self):
+        self.popup = Popup()
+        self.cursor = None
+        self.last = None
+        addr = IBus.get_address()
+        if not addr:
+            sys.exit('ibus address not found')
+        self.bus = Gio.DBusConnection.new_for_address_sync(
+            addr,
+            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+            | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+            None, None)
+        self.bus.connect('closed', lambda *a: sys.exit('ibus connection closed'))
+        self.bus.add_filter(self._filter)
+        for rule in (
+            # ibus-daemon は engine のシグナルを panel にしか転送しないので、これも盗聴で拾う
+            "type='signal',interface='org.freedesktop.IBus.Engine',member='UpdateProperty',eavesdrop=true",
+            # キャレット位置はクライアント→daemon の method call なので盗聴でしか見えない
+            "type='method_call',interface='org.freedesktop.IBus.InputContext',"
+            "member='SetCursorLocation',eavesdrop=true",
+        ):
+            self.bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus',
+                               'org.freedesktop.DBus', 'AddMatch',
+                               GLib.Variant('(s)', (rule,)), None,
+                               Gio.DBusCallFlags.NONE, -1, None)
+
+    def _filter(self, conn, msg, incoming):
+        if not incoming:
+            return msg
+        member = msg.get_member()
+        if msg.get_message_type() == Gio.DBusMessageType.METHOD_CALL:
+            if member == 'SetCursorLocation':
+                self.cursor = tuple(msg.get_body().unpack())
+            # 盗聴した他人宛の呼び出しを素通しすると GDBus が UnknownMethod を返してしまう
+            return None
+        if member == 'UpdateProperty':
+            GLib.idle_add(self._on_property, msg.get_body())
+        return msg
+
+    def _on_property(self, body):
+        prop = body.unpack()[0]
+        # IBusProperty: (name, attachments, key, type, label, icon, ...)
+        if prop[2] != 'InputMode':
+            return False
+        m = re.search(r'\((.+)\)', prop[4][2])
+        mode = m.group(1) if m else '?'
+        if mode != self.last:
+            self.last = mode
+            self._write_state(mode)
+            self.popup.show(mode, mode != 'A', self.cursor)
+        return False
+
+    @staticmethod
+    def _write_state(mode):
+        tmp = STATE_FILE + '.tmp'
+        with open(tmp, 'w') as f:
+            f.write(mode + '\n')
+        os.replace(tmp, STATE_FILE)
+
+
+if __name__ == '__main__':
+    Watcher()
+    Gtk.main()
