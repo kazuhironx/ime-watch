@@ -18,8 +18,10 @@ COLOR_ON := "FFB347"
 COLOR_OFF := "FFFFFF"
 
 ; IME を切り替えるキー。~ で IME へ素通しする。
-; Alt+` は 101 配列での MS-IME 既定の切替、変換/無変換は IME オン/オフ
-IME_KEYS := ["~!sc029", "*~sc079", "*~sc07B"]
+; Alt+` は 101 配列での MS-IME 既定の切替、変換/無変換は IME オン/オフ。
+; vk1A/vk16 は HHKB の英数/かな (HID Lang2/Lang1)。スキャンコードが 0x1F1/0x1F2 と
+; 変換/無変換とは別物で届くので、仮想キーで指定する
+IME_KEYS := ["~!sc029", "*~sc079", "*~sc07B", "*~vk1A", "*~vk16"]
 
 for key in IME_KEYS
     Hotkey(key, (*) => SetTimer(ShowMode, -SETTLE_MS))
