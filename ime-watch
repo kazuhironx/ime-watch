@@ -18,6 +18,15 @@ from gi.repository import Gdk, Gio, GLib, Gtk, IBus  # noqa: E402
 
 STATE_FILE = os.path.join(GLib.get_user_cache_dir(), 'ime-state')
 POPUP_MS = 700
+# キーを Mozc が処理して UpdateProperty が届く前に読むと、切替前のモードを出してしまう
+SETTLE_MS = 60
+# IME を切り替えるキー (keyval, 必須修飾キー)。Mozc のキーマップで IMEOn/IMEOff に割り当てたもの。
+# モードが変わらない押下でもポップアップを出し、今どちらかを確かめられるようにする
+TOGGLE_KEYS = (
+    (IBus.KEY_Henkan_Mode, 0),
+    (IBus.KEY_Muhenkan, 0),
+    (IBus.KEY_grave, IBus.ModifierType.MOD1_MASK),
+)
 
 CSS = b"""
 #ime-popup { background-color: rgba(30, 30, 30, 0.92); border-radius: 10px; }
@@ -90,6 +99,9 @@ class Watcher:
             # キャレット位置はクライアント→daemon の method call なので盗聴でしか見えない
             "type='method_call',interface='org.freedesktop.IBus.InputContext',"
             "member='SetCursorLocation',eavesdrop=true",
+            # UpdateProperty はモードが変わったときしか表示に使わないので、同じモードへの切替は押下から拾う
+            "type='method_call',interface='org.freedesktop.IBus.InputContext',"
+            "member='ProcessKeyEvent',eavesdrop=true",
         ):
             self.bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus',
                                'org.freedesktop.DBus', 'AddMatch',
@@ -103,11 +115,24 @@ class Watcher:
         if msg.get_message_type() == Gio.DBusMessageType.METHOD_CALL:
             if member == 'SetCursorLocation':
                 self.cursor = tuple(msg.get_body().unpack())
+            elif member == 'ProcessKeyEvent' and self._is_toggle_key(*msg.get_body().unpack()):
+                GLib.timeout_add(SETTLE_MS, self._on_toggle_key)
             # 盗聴した他人宛の呼び出しを素通しすると GDBus が UnknownMethod を返してしまう
             return None
         if member == 'UpdateProperty':
             GLib.idle_add(self._on_property, msg.get_body())
         return msg
+
+    @staticmethod
+    def _is_toggle_key(keyval, keycode, state):
+        if state & IBus.ModifierType.RELEASE_MASK:
+            return False
+        return any(keyval == k and state & mods == mods for k, mods in TOGGLE_KEYS)
+
+    def _on_toggle_key(self):
+        if self.last is not None:
+            self.popup.show(self.last, self.last != 'A', self.cursor)
+        return False
 
     def _on_property(self, body):
         prop = body.unpack()[0]

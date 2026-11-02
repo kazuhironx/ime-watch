@@ -42,6 +42,9 @@ ibus-daemon のバスに `eavesdrop=true` の match rule を登録し、次の2�
 
 - エンジンが出す `UpdateProperty` シグナルのうち `InputMode`。ラベル `Input Mode (あ)` の括弧の中を、モードとして使います。
 - クライアントが送る `SetCursorLocation`。入力位置の座標です。
+- クライアントが送る `ProcessKeyEvent`。IME を切り替えるキーの押下です。
+
+ポップアップは、モードが変わったときに加えて、切替キーを押したときにも出します。`UpdateProperty` ではモードが変わったときにしか表示しないので、IME オンの状態でもう一度オンにしたときは、キーの押下を見て表示します。切替キーは `ime-watch` 先頭の `TOGGLE_KEYS` で決めていて、既定は変換、無変換、Alt+` です。起動直後は、一度モードが変わるまで切替キーを押しても表示しません。
 
 ibus-daemon は `org.freedesktop.DBus.Monitoring` を実装していないので、盗聴（eavesdrop）でしか読めません。盗聴した他人宛のメソッド呼び出しはフィルタで捨てます。捨てないと GDBus が `UnknownMethod` エラーを返してしまうからです。
 
@@ -57,7 +60,7 @@ ibus-daemon は `org.freedesktop.DBus.Monitoring` を実装していないので
 & "<AutoHotkey のフォルダ>\AutoHotkey64.exe" "<このリポジトリ>\windows\ime-watch.ahk"
 ```
 
-Linux 版と違い、IME を切り替えるキーを押したときに表示します。モードが変わらなかったときも出すので、今のモードを確かめたいときにも使えます。キーはファイル先頭の `IME_KEYS` で決めていて、既定は Alt+`、英数、かな（HHKB の英数/かな）です。
+Linux 版と同じく、IME を切り替えるキーを押したときに表示します。モードが変わらなかったときも出すので、今のモードを確かめたいときにも使えます。キーはファイル先頭の `IME_KEYS` で決めていて、既定は Alt+`、英数、かな（HHKB の英数/かな）です。
 
 変換と無変換は `IME_REMAP` で、IME オンとオフに置き換えています。US 配列（kbd101）ではこの2つのキーが IME に届かず、押してもモードが変わらないためです。
 
