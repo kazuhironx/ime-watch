@@ -21,10 +21,20 @@ COLOR_OFF := "FFFFFF"
 ; Alt+` は 101 配列での MS-IME 既定の切替、変換/無変換は IME オン/オフ。
 ; vk1A/vk16 は HHKB の英数/かな (HID Lang2/Lang1)。スキャンコードが 0x1F1/0x1F2 と
 ; 変換/無変換とは別物で届くので、仮想キーで指定する
-IME_KEYS := ["~!sc029", "*~sc079", "*~sc07B", "*~vk1A", "*~vk16"]
+IME_KEYS := ["~!sc029", "*~vk1A", "*~vk16"]
+; 101 配列 (kbd101) では変換は vk00、無変換は vkEB に化けて IME に届かないので、
+; HHKB の英数/かな と同じ VK_IME_OFF/ON を送り直す。自分の Send は上のホットキーに拾われない
+IME_REMAP := Map("*sc079", "{vk16}", "*sc07B", "{vk1A}")
 
 for key in IME_KEYS
     Hotkey(key, (*) => SetTimer(ShowMode, -SETTLE_MS))
+for key, vk in IME_REMAP
+    Hotkey(key, SendImeKey.Bind(vk))
+
+SendImeKey(vk, *) {
+    Send(vk)
+    SetTimer(ShowMode, -SETTLE_MS)
+}
 
 A_IconTip := "ime-watch"
 
