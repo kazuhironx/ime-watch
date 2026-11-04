@@ -4,6 +4,8 @@ PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
+# Wayland では GTK の POPUP 窓を move() で置けないので、Xwayland 上で動かす
+Environment=GDK_BACKEND=x11
 ExecStart=/usr/bin/python3 -I %h/.local/bin/ime-watch
 # ibus restart でバス接続が切れると終了するので、再接続は systemd に任せる
 Restart=always

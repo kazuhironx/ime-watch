@@ -7,10 +7,10 @@ GNOME のトップバーの表示は、Mozc のキーマップで割り当てた
 ## 動作環境
 
 - ibus と ibus-mozc
-- Xorg セッション（Ubuntu 24.04 の GNOME で確認しています）
+- Xorg または Wayland のセッション（Ubuntu 24.04 の GNOME で確認しています）
 - Python 3 と PyGObject（`gir1.2-ibus-1.0`、`gir1.2-gtk-3.0`）
 
-Wayland では、ポップアップを入力位置に動かせません。状態ファイルの書き出しは動くはずですが、試していません。
+Wayland では、アプリがポップアップを好きな座標に置けません。そこで `ime-watch.service` で `GDK_BACKEND=x11` を指定し、Xwayland の上で動かしています。GNOME Remote Desktop の RDP でログインしたときのセッションは必ず Wayland になりますが、この設定で入力位置の横に表示できることを確かめています。
 
 ## インストール
 
